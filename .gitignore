@@ -1,2 +1,6 @@
+data/
+
+*.csv
+
 # Notebook Checkpoints
 .ipynb_checkpoints/
