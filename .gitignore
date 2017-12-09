@@ -1,6 +1,9 @@
 data/
 
+.DS_Store
+
 *.csv
+*.7z
 
 # Notebook Checkpoints
 .ipynb_checkpoints/
