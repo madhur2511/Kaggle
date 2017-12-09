@@ -1,0 +1,377 @@
+Example Tables 
+
+• In this section we are going to use the following set of hypothetical tables about a company (called
+F&F). When writing queries about this data you can assume that all tables are within the same
+schema.
+• For this company, each transaction (or sale) has a single item and sales person attached to it. 
+• All columns with the same name can be assumed to match and merge. 
+• Transaction Table:
+   – SID, ItemID and TID are all integers, Amount is a float and TransTS is a timestamp20 
+   – TID is unique per transaction and stands for “Transaction ID” 
+   – SID is unique per sales person and stands for “SalesPersonID” 
+   – ItemID is an ID that is unique to an item. 
+
+• Refund Table: 
+   – RefundTS is a timestamp 
+   – RefundAmount is a float, it is always less than or equal to the transaction amount 
+   – A transaction can only have a single refund, but not all transactions will have refunds.
+
+
+
+Table B.5: "Transaction" Table, 12,525 Rows
+SID        TransTS         ItemID  TID     Amount 
+1   01-01-14 08:10:25 PST   124     1     15000.18
+3   01-21-14 18:10:25 PST   888     2     25000.45
+2   11-08-14 12:09:25 PST   125     12     1854.65
+
+
+
+Table B.6: "Refund" Table, 385 Rows
+TID         RefundTS           RefundAmount
+12   03-14-14 14:12:18 PST       1,854.65
+
+
+
+Table B.7: "SalesPerson" Table, 50 Rows
+SID       Name         MobilePhone State BonusStructure 
+1   Brian O’Conner    111-222-3333  CA 		 High 
+2   Dominic Torretto  444-555-6666  CA 		 High 
+3   Letty 			  777-888-9999  CA 		 High 
+4   Lightning McQueen 111-333-5555  AZ   	 Low 
+5   Tow Mater 		  222-444-6666  AZ    	 Low
+
+
+
+Table B.8: "Item" Table, 50 Rows
+ItemID BaseCost          Name
+1       4.99         Washer Fluid
+2      14.89         Brake Fluid
+3      56.78     Brake Pads (Generic)
+
+
+
+
+############################################################################################################################################
+
+1. What are the top five sales people (SID only) in terms of number of sales?
+
+SELECT SID FROM( 
+	SELECT SID, COUNT(*) AS num_sales
+	FROM Transaction
+	GROUP BY SID
+) ORDER BY num_sales
+LIMIT 5;
+
+or the one below,
+
+SELECT SID
+FROM Transaction
+GROUP BY SID
+ORDER BY COUNT(*)
+LIMIT 5;
+
+############################################################################################################################################
+
+2. What are the top five sales people (Name) in terms of number of sales?
+
+SELECT SalesPerson.Name FROM (
+	SELECT SID FROM( 
+		SELECT SID, COUNT(*) AS num_sales
+		FROM Transaction
+		GROUP BY SID
+	) ORDER BY num_sales
+	LIMIT 5
+) top_sales_sid JOIN SalesPerson ON SalesPerson.SID=top_sales_sid.SID;
+
+or we can use USING and wont have to create an alias for the Transaction table.
+However, USING would only work if column names are exactly the same.
+
+SELECT SalesPerson.Name FROM (
+	SELECT SID FROM( 
+		SELECT SID, COUNT(*) AS num_sales
+		FROM Transaction
+		GROUP BY SID
+	) ORDER BY num_sales
+	LIMIT 5
+) JOIN SalesPerson USING(SID);
+
+############################################################################################################################################
+
+3. What are the top 10 sales people (Name) in terms of dollars of sales?
+
+SELECT SalesPerson.Name 
+FROM (
+	SELECT SID, SUM(AMOUNT) AS total_sales
+	FROM Transaction
+	GROUP BY SID
+) JOIN SalesPerson USING(SID)
+ORDER BY total_sales DESC
+LIMIT 10;
+
+############################################################################################################################################
+
+4. Which mobile phone area code (first three digits) has the highest number of sales?
+
+SELECT SalesPerson.area_code
+FROM Transaction JOIN ( 
+		SELECT 
+			SID, 
+			SUBSTRING_INDEX(MobilePhone, '-', 1) AS area_code
+		FROM SalesPerson
+	) USING(SID)
+GROUP BY SalesPerson.area_code
+ORDER BY COUNT(*)
+LIMIT 1;
+
+############################################################################################################################################
+
+5. Calculate the total of revenue from each state.
+
+SELECT 
+	SalesPerson.State, 
+	SUM(Transaction.Amount - Refund.RefundAmount) AS net_revenue
+FROM Transaction
+	LEFT JOIN Refund USING(TID)
+	JOIN SalesPerson USING(SID)
+GROUP BY SalesPerson.State
+
+############################################################################################################################################
+
+6. Calculate the total revenue from all states.
+
+SELECT 
+	SUM(Transaction.Amount - Refund.RefundAmount) AS total_revenue
+FROM Transaction
+	LEFT JOIN Refund USING(TID)
+	JOIN SalesPerson USING(SID)
+
+############################################################################################################################################
+
+7. Calculate the percentage of revenue from each state.
+
+SELECT 
+	SalesPerson.State,
+	state_revenue / total_revenue
+FROM (
+	(
+		SELECT
+			SalesPerson.State,
+			SUM(Transaction.Amount - Refund.RefundAmount) AS state_revenue
+		FROM Transaction
+			LEFT JOIN Refund USING(TID)
+			JOIN SalesPerson USING(SID)
+		GROUP BY SalesPerson.State
+	)
+	OUTER JOIN 
+	(
+		SELECT 
+			SUM(Transaction.Amount - Refund.RefundAmount) AS total_revenue
+		FROM Transaction
+			LEFT JOIN Refund USING(TID)
+			JOIN SalesPerson USING(SID)
+	)
+)
+
+############################################################################################################################################
+
+8. What was the total refunded amount for each sales person (SID only)?
+
+SELECT 
+	SID,
+	SUM(Refund.RefundAmount)
+FROM Transaction
+	JOIN Refund USING(TID)
+GROUP BY SID
+
+############################################################################################################################################
+
+9. How many sales people had no refunds? When thinking about this problem remember that a salesperson has multiple transactions and each transaction may have a refund. We need to make sure that there are no refunds for any of the transactions for a sales person.
+
+SELECT COUNT(*)
+FROM SalesPerson
+WHERE SID NOT IN (
+	SELECT DISTINCT SID
+	Refund JOIN Transaction USING(TID)
+)
+
+############################################################################################################################################
+
+10. Which sales person (name only) had the highest percentage of refunds, based on number of transactions?
+
+SELECT 	
+	SalesPerson.Name		
+FROM SalesPerson
+	JOIN (				
+		SELECT
+			SID,
+			(CASE WHEN num_refunds_for_sp IS NULL THEN 0 ELSE num_refunds_for_sp END) / total_transactions_for_sp AS perc_refund_for_sp
+		FROM (
+				SELECT 
+					SID,
+					COUNT(*) AS total_transactions_for_sp
+				FROM Transaction
+				GROUP BY SID
+			) 
+			LEFT JOIN
+			(
+				SELECT 
+					SID, 
+					COUNT(*) AS num_refunds_for_sp
+				FROM 
+					Transaction JOIN Refund USING(TID)
+				GROUP BY SID
+			) 
+			USING(SID)
+		ORDER BY perc_refund_for_sp DESC
+		LIMIT 1
+	) 
+	USING(SID)
+
+############################################################################################################################################
+
+11. For each salesperson (Name), what percentage of their sales were refunded?
+
+	SELECT
+		SalesPerson.Name,
+		100.0 * total_refunds_for_sp / total_sales_for_sp AS perc_refunds_for_sp
+	FROM 
+		SalesPerson 
+		JOIN (
+			SELECT 
+				SID, 
+				SUM(Amount) AS total_sales_for_sp,
+				SUM(RefundAmount) AS total_refunds_for_sp
+			FROM 
+				Transaction LEFT JOIN Refund USING(TID)
+			GROUP BY SID
+		) USING(SID)
+
+############################################################################################################################################
+
+12. What is the average percentage refunded, on those transactions with refunds?
+
+so for each item, get the percentage of times that item is refunded.
+I1 - 10%
+I2 - 20%
+I3 - 15%
+take the average of the refund percentages
+
+
+SELECT
+	AVG(perc_count_item_refunded)
+FROM (
+	SELECT
+		ItemID,
+		100.0 * count_item_refunded / count_item_purchased AS perc_count_item_refunded
+	FROM (
+		(
+			SELECT
+				ItemID,
+				COUNT(*) AS count_item_refunded
+			FROM 
+				Transaction 
+				JOIN Refund USING(TID)
+			GROUP BY ItemID
+		) JOIN
+		(
+			SELECT
+				ItemID,
+				COUNT(*) AS count_item_purchased
+			FROM Transaction 					
+			GROUP BY ItemID
+		) USING(ItemID)
+	)
+)
+
+############################################################################################################################################
+
+13. For each month, report the percentage of sales refunded by both number of refunds and dollars.
+Assume that a refund can occur in any month after a sale, but that all refunds are in these tables.
+
+	SELECT 
+		month,
+		100.0 * num_refunds_for_month / num_txn_for_month,
+		100.0 * amt_refunds_for_month / amt_txn_for_month
+	FROM ( 
+		(
+			SELECT
+				SUBSTRING_INDEX(RefundTransTS, '-', 2) AS month,
+				COUNT(*) AS num_refunds_for_month,
+				COUNT(RefundAmount) AS amt_refunds_for_month,
+			FROM 
+				Transaction 
+				JOIN Refund USING(TID)
+			GROUP BY 1
+		) JOIN
+		(
+			SELECT
+				SUBSTRING_INDEX(TransTS, '-', 2) AS month,
+				COUNT(*) AS num_txn_for_month,
+				COUNT(Amount) AS amt_txn_for_month				
+			FROM Transaction
+			GROUP BY 1
+		) USING(month)
+	)
+
+############################################################################################################################################
+
+14. What percentage of sales had (1) returns above 20% (by dollar) and (2) returns above 50% (by dollar)
+of their value? Write a single query that returns two values.
+
+SELECT
+	1.0 * gt_20 / total_sales,
+	1.0 * gt_50 / total_sales
+FROM (
+	SELECT
+		COUNT(CASE WHEN (100.0 * RefundAmount / Amount > 20) THEN 1 ELSE 0 END) AS gt_20,
+		COUNT(CASE WHEN (100.0 * RefundAmount / Amount > 50) THEN 1 ELSE 0 END) AS gt_50,
+		COUNT(*) AS total_sales
+	FROM
+		Transaction
+		JOIN Refund USING(TID)
+)
+
+############################################################################################################################################
+
+15. Let’s calculate which item (Name) is the most returned, by percent of returns:
+
+SELECT Item.Name
+FROM (
+	SELECT
+		ItemID,
+		100.0 * count_return_txn / count_total_txn AS perc_returns_by_itemid
+	FROM
+		(
+			SELECT
+				ItemID,
+				COUNT(*) as count_total_txn
+			FROM Transaction		
+			GROUP BY ItemId
+		)
+		LEFT JOIN
+		(
+			SELECT
+				ItemID,
+				COUNT(*) as count_return_txn
+			FROM
+				Transaction
+				JOIN Refund USING(TID)	
+			GROUP BY ItemId
+		)
+) JOIN Item USING(ItemID)
+ORDER BY perc_returns_by_itemid DESC
+LIMIT 1
+
+############################################################################################################################################
+
+16. Calculate the total amount of BaseCost returned, by item name.
+
+SELECT
+	Item.Name,
+	SUM(Item.BaseCost)           (OR      COUNT(*) * Item.BaseCost)
+FROM Transaction 
+	JOIN Refund USING(TID)
+	JOIN Item USING(ItemID)
+GROUP BY Item.Name
+
+############################################################################################################################################
